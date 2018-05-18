@@ -8,6 +8,7 @@
 '''Class for handling environment configuration and defaults.'''
 
 
+import re
 import resource
 from collections import namedtuple
 from ipaddress import ip_address
@@ -66,10 +67,7 @@ class Env(EnvBase):
         self.max_session_subs = self.integer('MAX_SESSION_SUBS', 50000)
         self.bandwidth_limit = self.integer('BANDWIDTH_LIMIT', 2000000)
         self.session_timeout = self.integer('SESSION_TIMEOUT', 600)
-
-        # IRC
-        self.irc = self.boolean('IRC', False)
-        self.irc_nick = self.default('IRC_NICK', None)
+        self.drop_client = self.custom("DROP_CLIENT", None, re.compile)
 
         # Identities
         clearnet_identity = self.clearnet_identity()
@@ -87,9 +85,9 @@ class Env(EnvBase):
         # We give the DB 250 files; allow ElectrumX 100 for itself
         value = max(0, min(env_value, nofile_limit - 350))
         if value < env_value:
-            self.log_warning('lowered maximum sessions from {:,d} to {:,d} '
-                             'because your open file limit is {:,d}'
-                             .format(env_value, value, nofile_limit))
+            self.logger.warning('lowered maximum sessions from {:,d} to {:,d} '
+                                'because your open file limit is {:,d}'
+                                .format(env_value, value, nofile_limit))
         return value
 
     def clearnet_identity(self):
@@ -103,7 +101,7 @@ class Env(EnvBase):
                    or host.lower() == 'localhost')
         else:
             bad = (ip.is_multicast or ip.is_unspecified
-                   or (ip.is_private and (self.irc or self.peer_announce)))
+                   or (ip.is_private and self.peer_announce))
         if bad:
             raise self.Error('"{}" is not a valid REPORT_HOST'.format(host))
         tcp_port = self.integer('REPORT_TCP_PORT', self.tcp_port) or None
@@ -146,6 +144,11 @@ class Env(EnvBase):
             ssl_port,
             '_tor',
         )
+
+    def hosts_dict(self):
+        return {identity.host: {'tcp_port': identity.tcp_port,
+                                'ssl_port': identity.ssl_port}
+                for identity in self.identities}
 
     def peer_discovery_enum(self):
         pd = self.default('PEER_DISCOVERY', 'on').strip().lower()
